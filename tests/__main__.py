@@ -16,9 +16,21 @@ def common_tests():
     return suite
 
 
+def asyncio_tests():
+    from . import test_asyncio
+    suite = unittest.TestSuite()
+    for test in discover_tests(test_asyncio):
+        suite.addTest(test)
+    return suite
+
+
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(common_tests())
+    try:
+        suite.addTest(asyncio_tests())
+    except:
+        pass
     return suite
 
 

@@ -58,6 +58,35 @@ immediately producing some result::
     stream.write('</geo>')
 
 
+For ``asyncio`` backend usage will be a bit different, depending on your Python
+version. For Python 3.5 you can stay with the familiar API, thanks to
+`async for` feature::
+
+    import ijson.backends.asyncio as ijson
+
+    async def go():
+        resp = await aiohttp.get('http://localhost:5984')
+        async for item in ijson.items(resp.content, ''):
+            ...
+
+Python 3.3 and 3.4 lacks that feature, so you'll have to go with the `while`
+loop instead::
+
+    import asyncio
+    import ijson.backends.asyncio as ijson
+
+    @asyncio.coroutine
+    def go():
+        resp = yield from aiohttp.get('http://localhost:5984')
+        items = ijson.items(resp.content, '')
+        while True:
+            try:
+                item = yield from items.next()
+            except ijson.StopAsyncIteration:  # signal that steam is over
+                break
+            else:
+                ...
+
 Backends
 ========
 
@@ -73,6 +102,7 @@ backends located in ijson/backends:
   for some reason.
 - ``yajl``: deprecated YAJL 1.x + ctypes wrapper, for even older systems.
 - ``python``: pure Python parser, good to use with PyPy
+- ``asyncio``: pure Python parser made for asyncio
 
 You can import a specific backend and use it in the same way as the top level
 library::

@@ -129,27 +129,42 @@ def parse_value(lexer, pos=0, symbol=None):
             raise python.UnexpectedSymbol(symbol, pos)
 
 
-class BasicParser(AsyncIterable):
+class ParseValueMixin(object):
 
-    def __init__(self, lexer):
-        super().__init__(lexer)
-        self._parser = None
-        self._completed = False
+    _iterator = None
+
+    @asyncio.coroutine
+    def parse_value(self, pos=0, symbol=None):
+        if self._iterator is not None:
+            item = yield from self._iterator.next()
+            if item is not None:
+                return item
+            self._iterator = None
+        else:
+            value = yield from parse_value(self.coro, pos, symbol)
+            if isinstance(value, AsyncIterable):
+                self._iterator = value
+                return (yield from self._iterator.next())
+            return value
+
+
+class BasicParser(AsyncIterable, ParseValueMixin):
+
+    _completed = False
 
     @asyncio.coroutine
     def next(self):
         if self._completed:
-            return None
-        if self._parser is None:
-            value = yield from parse_value(self.coro)
-            if isinstance(value, ContainerParser):
-                self._parser = value
-            else:
-                self._completed = True
-                return value
-        value = yield from self._parser.next()
+            yield from parse_value(self.coro)
+            raise common.JSONError('Additional data')
+        return (yield from self.next_event())
+
+    @asyncio.coroutine
+    def next_event(self):
+        value = yield from self.parse_value()
         if value is None:
             self._completed = True
+            return (yield from self.next())
         return value
 
 
@@ -165,90 +180,61 @@ class ContainerParser(AsyncIterable):
             return pos, symbol
 
 
-class ArrayParser(ContainerParser):
+class ArrayParser(ContainerParser, ParseValueMixin):
 
-    state = None
-    _parser = None
+    _next_future = None
 
     @asyncio.coroutine
     def next(self):
-        if self.state is None:
-            self.state = 'new_item'
+        if self._next_future is None:
+            self._next_future = self.next_new_item
             return ('start_array', None)
-        elif self.state == 'ended':
-            return
-        elif self.state == 'new_item':
-            return (yield from self.next_new_item())
-        elif self.state == 'next_item':
-            return (yield from self.next_item())
-        else:
-            raise RuntimeError(self.state)
+        return (yield from self._next_future())
 
     @asyncio.coroutine
     def next_new_item(self):
         pos, symbol = yield from self.next_symbol()
         if symbol == ']':
-            self.state = 'ended'
+            self._next_future = self.the_end
             return ('end_array', None)
-        value = yield from parse_value(self.coro, pos, symbol)
-        self.state = 'next_item'
-        if isinstance(value, tuple):
-            return value
-        self._parser = value
-        return (yield from self._parser.next())
+        self._next_future = self.next_item
+        return (yield from self.parse_value(pos, symbol))
 
     @asyncio.coroutine
     def next_item(self):
-        if self._parser is not None:
-            item = yield from self._parser.next()
-            if item is not None:
-                return item
-            self._parser = None
-            pos, symbol = yield from self.next_symbol()
-            if symbol == ']':
-                self.state = 'ended'
-                return ('end_array', None)
-            if symbol != ',':
-                raise python.UnexpectedSymbol(symbol, pos)
-        value = yield from parse_value(self.coro)
-        self.state = 'next_item'
-        if isinstance(value, tuple):
-            return value
-        self._parser = value
-        return (yield from self._parser.next())
+        if self._iterator is not None:
+            value = yield from self.parse_value()
+            if value is not None:
+                return value
+        pos, symbol = yield from self.next_symbol()
+        if symbol == ']':
+            self._next_future = self.the_end
+            return ('end_array', None)
+        if symbol != ',':
+            raise python.UnexpectedSymbol(symbol, pos)
+        return (yield from self.parse_value())
+
+    @asyncio.coroutine
+    def the_end(self):
+        return
 
 
-class ObjectParser(ContainerParser):
+class ObjectParser(ContainerParser, ParseValueMixin):
 
-    state = None
-    _parser = None
+    _next_future = None
 
     @asyncio.coroutine
     def next(self):
-        if self.state is None:
-            self.state = 'first_key'
+        if self._next_future is None:
+            self._next_future = self.next_first_key
             return ('start_map', None)
-        elif self.state == 'ended':
-            return
-        elif self.state == 'first_key':
-            rval = self.next_first_key()
-        elif self.state == 'key':
-            rval = self.next_key()
-        elif self.state == 'before_value':
-            rval = self.before_value()
-        elif self.state == 'value':
-            rval = self.next_value()
-        elif self.state == 'after_value':
-            rval = self.after_value()
-        else:
-            raise RuntimeError('invalid state %r' % self.state)
-        return (yield from rval)
+        return (yield from self._next_future())
 
     @asyncio.coroutine
     def next_first_key(self):
         pos, symbol = yield from self.next_symbol()
         if symbol == '}':
-            self.state = 'ended'
+            self._next_future = self.the_end
             return ('end_map', None)
         return (yield from self.next_key(pos, symbol))
 
@@ -258,7 +244,7 @@ class ObjectParser(ContainerParser):
             pos, symbol = yield from self.next_symbol()
         if symbol[0] != '"':
             raise python.UnexpectedSymbol(symbol, pos)
-        self.state = 'before_value'
+        self._next_future = self.before_value
         return ('map_key', python.unescape(symbol[1:-1]))
 
     @asyncio.coroutine
@@ -266,34 +252,31 @@ class ObjectParser(ContainerParser):
         pos, symbol = yield from self.next_symbol()
         if symbol[0] != ':':
             raise python.UnexpectedSymbol(symbol, pos)
-        return (yield from self.next_value())
+        self._next_future = self.next_value
+        return (yield from self._next_future())
 
     @asyncio.coroutine
     def next_value(self):
-        self.state = 'value'
-        if self._parser is not None:
-            item = yield from self._parser.next()
-            if item is not None:
-                return item
-            self._parser = None
+        value = yield from self.parse_value()
+        if value is None:
             return (yield from self.after_value())
-        else:
-            value = yield from parse_value(self.coro)
-            if isinstance(value, tuple):
-                self.state = 'after_value'
-                return value
-            self._parser = value
-            return (yield from self._parser.next())
+        if self._iterator is None:
+            self._next_future = self.after_value
+        return value
 
     @asyncio.coroutine
     def after_value(self):
         pos, symbol = yield from self.next_symbol()
         if symbol == '}':
-            self.state = 'ended'
+            self._next_future = self.the_end
             return ('end_map', None)
         if symbol != ',':
             raise python.UnexpectedSymbol(symbol, pos)
         return (yield from self.next_key())
+
+    @asyncio.coroutine
+    def the_end(self):
+        return
 
 
 class Parser(AsyncIterable):
@@ -306,8 +289,6 @@ class Parser(AsyncIterable):
     def next(self):
         path = self.path
         item = yield from self.coro.next()
-        if item is None:
-            raise StopAsyncIteration
         event, value = item
         if event == 'map_key':
             prefix = '.'.join(path[:-1])

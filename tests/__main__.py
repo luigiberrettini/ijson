@@ -24,11 +24,21 @@ def asyncio_tests():
     return suite
 
 
+def asyncfor_tests():
+    from . import test_asyncfor
+    suite = unittest.TestSuite()
+    for test in discover_tests(test_asyncfor):
+        suite.addTest(test)
+    return suite
+
+
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(common_tests())
     try:
         suite.addTest(asyncio_tests())
+        # importing asyncfor only makes sense if asyncio is supported
+        suite.addTest(asyncfor_tests())
     except:
         pass
     return suite

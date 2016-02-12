@@ -4,7 +4,9 @@ Pure-python parsing backend designed to work with asyncio coroutines.
 
 import asyncio
 import builtins
+import codecs
 import decimal
+import io
 
 from ijson.backends import python
 from ijson import common
@@ -41,11 +43,20 @@ class FileReader(AsyncIterable):
     def __init__(self, coro, buf_size=python.BUFSIZE, encoding='utf-8'):
         super().__init__(coro)
         self.buf_size = buf_size
+        self.buffer = io.BytesIO()
         self.encoding = encoding
+        self.reader = codecs.getreader(encoding)(self.buffer)
 
     @asyncio.coroutine
     def next(self):
-        return (yield from self.coro.read(self.buf_size)).decode(self.encoding)
+        data = self.reader.read(self.buf_size)
+        if not data:
+            pos = self.buffer.tell()
+            data = yield from self.coro.read(self.buf_size)
+            self.buffer.write(data)
+            self.buffer.seek(pos)
+            data = self.reader.read(self.buf_size)
+        return data
 
 
 class Lexer(AsyncIterable):
@@ -155,15 +166,19 @@ class BasicParser(AsyncIterable, ParseValueMixin):
     @asyncio.coroutine
     def next(self):
         if self._completed:
-            yield from parse_value(self.coro)
+            yield from self.parse_value()
             raise common.JSONError('Additional data')
         return (yield from self.next_event())
 
     @asyncio.coroutine
     def next_event(self):
-        value = yield from self.parse_value()
-        if value is None:
+        try:
+            value = yield from self.parse_value()
+        except StopAsyncIteration:
+            raise common.IncompleteJSONError('Incomplete JSON data')
+        if self._iterator is None:
             self._completed = True
+        if value is None:
             return (yield from self.next())
         return value
 

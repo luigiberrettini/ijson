@@ -53,18 +53,7 @@ YAJL_ALLOW_COMMENTS = 1
 YAJL_MULTIPLE_VALUES = 8
 
 
-def basic_parse(f, allow_comments=False, buf_size=64 * 1024,
-                multiple_values=False):
-    '''
-    Iterator yielding unprefixed events.
-
-    Parameters:
-
-    - f: a readable file-like object with JSON input
-    - allow_comments: tells parser to allow comments in JSON input
-    - buf_size: a size of an input buffer
-    - multiple_values: allows the parser to parse multiple JSON objects
-    '''
+def yajl_init(allow_comments=False, multiple_values=False):
     events = []
 
     def callback(event, func_type, func):
@@ -79,33 +68,68 @@ def basic_parse(f, allow_comments=False, buf_size=64 * 1024,
         yajl.yajl_config(handle, YAJL_ALLOW_COMMENTS, 1)
     if multiple_values:
         yajl.yajl_config(handle, YAJL_MULTIPLE_VALUES, 1)
+
+    # We need to pass callbacks back to avoid it destroy by GC what will cause
+    # segfault.
+    return handle, events, callbacks
+
+
+def yajl_parse(handle, buffer):
+    if buffer:
+        result = yajl.yajl_parse(handle, buffer, len(buffer))
+    else:
+        result = yajl.yajl_complete_parse(handle)
+
+    if result != YAJL_OK:
+        perror = yajl.yajl_get_error(handle, 1, buffer, len(buffer))
+        error = cast(perror, c_char_p).value
+        yajl.yajl_free_error(handle, perror)
+        if result == YAJL_INSUFFICIENT_DATA:
+            exception = common.IncompleteJSONError
+        else:
+            exception = common.JSONError
+        raise exception(error.decode('utf-8'))
+
+
+def basic_parse(f, allow_comments=False, buf_size=64 * 1024,
+                multiple_values=False):
+    '''
+    Iterator yielding unprefixed events.
+
+    Parameters:
+
+    - f: a readable file-like object with JSON input
+    - allow_comments: tells parser to allow comments in JSON input
+    - buf_size: a size of an input buffer
+    - multiple_values: allows the parser to parse multiple JSON objects
+    '''
+    handle, events, _ = yajl_init(allow_comments, multiple_values)
     try:
         while True:
             buffer = f.read(buf_size)
-            if buffer:
-                result = yajl.yajl_parse(handle, buffer, len(buffer))
-            else:
-                result = yajl.yajl_complete_parse(handle)
-            if result != YAJL_OK:
-                perror = yajl.yajl_get_error(handle, 1, buffer, len(buffer))
-                error = cast(perror, c_char_p).value
-                yajl.yajl_free_error(handle, perror)
-                exception = common.IncompleteJSONError if result == YAJL_INSUFFICIENT_DATA else common.JSONError
-                raise exception(error.decode('utf-8'))
+            # this calls the callbacks which will
+            # fill the events list
+            yajl_parse(handle, buffer)
+
             if not buffer and not events:
                 break
 
             for event in events:
                 yield event
-            events = []
+
+            # clear all events, but don't replace the
+            # the events list instance
+            del events[:]
     finally:
         yajl.yajl_free(handle)
+
 
 def parse(file, **kwargs):
     '''
     Backend-specific wrapper for ijson.common.parse.
     '''
     return common.parse(basic_parse(file, **kwargs))
+
 
 def items(file, prefix):
     '''

@@ -4,7 +4,6 @@ CFFI-Wrapper for YAJL C library version 2.x.
 
 from cffi import FFI
 import functools
-import sys
 
 from ijson import common, backends
 from ijson.compat import b2s
@@ -160,8 +159,9 @@ _callback_data = (
 )
 
 
-_asd = list()
-def yajl_init(scope, events, allow_comments=False, multiple_values=False):
+def yajl_init(allow_comments=False, multiple_values=False):
+    events = []
+    scope = Container()
     scope.ctx = ffi.new_handle(events)
     scope.callbacks = ffi.new('yajl_callbacks*', _callback_data)
     handle = yajl.yajl_alloc(scope.callbacks, ffi.NULL, scope.ctx)
@@ -171,7 +171,9 @@ def yajl_init(scope, events, allow_comments=False, multiple_values=False):
     if multiple_values:
         yajl.yajl_config(handle, YAJL_MULTIPLE_VALUES, ffi.cast('int', 1))
 
-    return handle
+    # We need to pass scope back to avoid it destroy by GC what will cause
+    # segfault.
+    return handle, events, scope
 
 
 def yajl_parse(handle, buffer):
@@ -184,7 +186,10 @@ def yajl_parse(handle, buffer):
         perror = yajl.yajl_get_error(handle, 1, buffer, len(buffer))
         error = b2s(ffi.string(perror))
         yajl.yajl_free_error(handle, perror)
-        exception = common.IncompleteJSONError if result == YAJL_INSUFFICIENT_DATA else common.JSONError
+        if result == YAJL_INSUFFICIENT_DATA:
+            exception = common.IncompleteJSONError
+        else:
+            exception = common.JSONError
         raise exception(error)
 
 
@@ -192,7 +197,8 @@ class Container(object):
     pass
 
 
-def basic_parse(f, buf_size=64*1024, **config):
+def basic_parse(f, buf_size=64 * 1024, allow_comments=False,
+                multiple_values=False):
     '''
     Iterator yielding unprefixed events.
 
@@ -206,10 +212,7 @@ def basic_parse(f, buf_size=64*1024, **config):
 
     # the scope objects makes sure the C objects allocated in _yajl.init
     # are kept alive until this function is done
-    scope = Container()
-    events = []
-
-    handle = yajl_init(scope, events, **config)
+    handle, events, _ = yajl_init(allow_comments, multiple_values)
     try:
         while True:
             buffer = f.read(buf_size)
@@ -235,6 +238,7 @@ def parse(file, **kwargs):
     Backend-specific wrapper for ijson.common.parse.
     '''
     return common.parse(basic_parse(file, **kwargs))
+
 
 def items(file, prefix):
     '''

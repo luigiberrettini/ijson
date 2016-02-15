@@ -7,9 +7,13 @@ import builtins
 import codecs
 import decimal
 import io
+import sys
 
 from ijson.backends import python
 from ijson import common
+
+
+BUFSIZE = python.BUFSIZE
 
 
 try:
@@ -38,11 +42,24 @@ class AsyncIterable(object):
         raise NotImplementedError
 
 
-class FileReader(AsyncIterable):
+class RawFileReader(AsyncIterable):
 
-    def __init__(self, coro, buf_size=python.BUFSIZE, encoding='utf-8'):
+    def __init__(self, coro, buf_size=BUFSIZE):
         super().__init__(coro)
         self.buf_size = buf_size
+
+    @asyncio.coroutine
+    def next(self):
+        data = yield from self.coro.read(self.buf_size)
+        if isinstance(data, bytearray):
+            return bytes(data)  # bytearray not supported by yajl
+        return data
+
+
+class FileReader(RawFileReader):
+
+    def __init__(self, coro, buf_size=python.BUFSIZE, encoding='utf-8'):
+        super().__init__(coro, buf_size)
         self.buffer = io.BytesIO()
         self.encoding = encoding
         self.reader = codecs.getreader(encoding)(self.buffer)
@@ -181,6 +198,30 @@ class BasicParser(AsyncIterable, ParseValueMixin):
         if value is None:
             return (yield from self.next())
         return value
+
+
+class YajlBasicParser(AsyncIterable):
+
+    def __init__(self, coro, yajl_backend):
+        super().__init__(coro)
+        self._parser_ctx = yajl_backend.make_parser()
+        self._parser = self._parser_ctx.__enter__()
+        self._events = (_ for _ in [])
+
+    @asyncio.coroutine
+    def next(self):
+        try:
+            event = next(self._events, ...)
+            if event is ...:
+                buf = yield from self.coro.next()
+                self._events = self._parser(buf)
+                event = next(self._events, ...)
+            if event is ...:
+                raise StopAsyncIteration
+            return event
+        except:
+            self._parser_ctx.__exit__(*sys.exc_info())
+            raise
 
 
 class ContainerParser(AsyncIterable):
@@ -348,19 +389,22 @@ class Items(AsyncIterable):
                 return value
 
 
-def basic_parse(file, buf_size=python.BUFSIZE):
-    return BasicParser(Lexer(FileReader(file, buf_size)))
+def basic_parse(file, buf_size=BUFSIZE, yajl_backend=None):
+    if yajl_backend is None:
+        return BasicParser(Lexer(FileReader(file, buf_size)))
+    else:
+        return YajlBasicParser(RawFileReader(file, buf_size), yajl_backend)
 
 
-def parse(file, buf_size=python.BUFSIZE):
+def parse(file, buf_size=BUFSIZE, yajl_backend=None):
     '''
     Backend-specific wrapper for ijson.common.parse.
     '''
-    return Parser(basic_parse(file, buf_size))
+    return Parser(basic_parse(file, buf_size, yajl_backend=yajl_backend))
 
 
-def items(file, prefix):
+def items(file, prefix, yajl_backend=None):
     '''
     Backend-specific wrapper for ijson.common.items.
     '''
-    return Items(parse(file), prefix)
+    return Items(parse(file, yajl_backend=yajl_backend), prefix)

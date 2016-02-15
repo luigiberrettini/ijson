@@ -3,6 +3,7 @@ CFFI-Wrapper for YAJL C library version 2.x.
 '''
 
 from cffi import FFI
+import contextlib
 import functools
 
 from ijson import common, backends
@@ -209,28 +210,37 @@ def basic_parse(f, buf_size=64 * 1024, allow_comments=False,
     - buf_size: a size of an input buffer
     - multiple_values: allows the parser to parse multiple JSON objects
     '''
-
-    # the scope objects makes sure the C objects allocated in _yajl.init
-    # are kept alive until this function is done
-    handle, events, _ = yajl_init(allow_comments, multiple_values)
-    try:
+    with make_parser(allow_comments=allow_comments,
+                     multiple_values=multiple_values) as parser:
         while True:
             buffer = f.read(buf_size)
-            # this calls the callbacks which will
-            # fill the events list
-            yajl_parse(handle, buffer)
-
-            if not buffer and not events:
-                break
-
+            events = parser(buffer)
             for event in events:
                 yield event
+            if not buffer:
+                break
 
-            # clear all events, but don't replace the
-            # the events list instance
-            del events[:]
-    finally:
-        yajl.yajl_free(handle)
+
+@contextlib.contextmanager
+def make_parser(allow_comments=False, multiple_values=False):
+    handle, events, _ = yajl_init(allow_comments=allow_comments,
+                                  multiple_values=multiple_values)
+
+    def parser(buffer):
+        # this calls the callbacks which will
+        # fill the events list
+        yajl_parse(handle, buffer)
+
+        for event in events:
+            yield event
+
+        # clear all events, but don't replace the
+        # the events list instance
+        del events[:]
+
+    yield parser
+
+    yajl.yajl_free(handle)
 
 
 def parse(file, **kwargs):

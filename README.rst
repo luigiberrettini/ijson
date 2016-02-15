@@ -112,6 +112,18 @@ library::
     for item in ijson.items(...):
         # ...
 
+With `asyncio` backend it's possible to reuse `yajl*` ones for parsing JSON
+data. This will improve parsing performance with preserving async IO::
+
+    import ijson.backends.asyncio as ijson
+    from ijson.backends import yajl2
+
+    async def go():
+        resp = await aiohttp.get('http://localhost:5984')
+        items = ijson.items(resp.content, '')
+        async for item for ijson.items(resp.content, '', yajl_backend=yajl2)
+            ...
+
 Importing the top level library as ``import ijson`` uses the pure Python
 backend.
 

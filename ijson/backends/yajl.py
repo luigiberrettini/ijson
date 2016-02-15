@@ -2,6 +2,7 @@
 Wrapper for YAJL C library version 1.x.
 '''
 
+import contextlib
 from ctypes import Structure, c_uint, c_ubyte, c_int, c_long, c_double, c_char, \
                    c_void_p, c_char_p, CFUNCTYPE, POINTER, byref, string_at, cast
 
@@ -99,25 +100,37 @@ def basic_parse(f, allow_comments=False, check_utf8=False, buf_size=64 * 1024):
     - check_utf8: if True, parser will cause an error if input is invalid utf-8
     - buf_size: a size of an input buffer
     '''
-    handle, events, _ = yajl_init(allow_comments, check_utf8)
-    try:
+    with make_parser(allow_comments=allow_comments,
+                     check_utf8=check_utf8) as parser:
         while True:
             buffer = f.read(buf_size)
-            # this calls the callbacks which will
-            # fill the events list
-            yajl_parse(handle, buffer)
-
-            if not buffer and not events:
-                break
-
+            events = parser(buffer)
             for event in events:
                 yield event
+            if not buffer:
+                break
 
-            # clear all events, but don't replace the
-            # the events list instance
-            del events[:]
-    finally:
-        yajl.yajl_free(handle)
+
+@contextlib.contextmanager
+def make_parser(allow_comments=False, check_utf8=False):
+    handle, events, _ = yajl_init(allow_comments=allow_comments,
+                                  check_utf8=check_utf8)
+
+    def parser(buffer):
+        # this calls the callbacks which will
+        # fill the events list
+        yajl_parse(handle, buffer)
+
+        for event in events:
+            yield event
+
+        # clear all events, but don't replace the
+        # the events list instance
+        del events[:]
+
+    yield parser
+
+    yajl.yajl_free(handle)
 
 
 def parse(file, **kwargs):

@@ -2,6 +2,7 @@ import asyncio
 import functools
 import io
 import unittest
+from importlib import import_module
 
 from ijson.backends import asyncio as asyncio_backend
 from ijson import common
@@ -49,6 +50,7 @@ class AsyncIO(object):
 class AsyncioParse(unittest.TestCase, metaclass=MetaAioTestCase):
 
     backend = asyncio_backend
+    yajl_backend = None
 
     def setUp(self):
         if self.backend is None:
@@ -140,6 +142,19 @@ class AsyncioParse(unittest.TestCase, metaclass=MetaAioTestCase):
         self.assertTrue(value)
         value = yield from self.list(self.backend.parse(AsyncIO(JSON)))
         self.assertTrue(value)
+
+
+# Generating real TestCase classes for each importable backend
+for name in ['yajl', 'yajl2', 'yajl2_cffi']:
+    try:
+        classname = 'Asyncio%sParse' % ''.join(p.capitalize() for p in name.split('_'))
+        locals()[classname] = type(
+            classname,
+            (AsyncioParse,),
+            {'yajl_backend': import_module('ijson.backends.%s' % name)},
+        )
+    except ImportError:
+        pass
 
 
 if __name__ == '__main__':

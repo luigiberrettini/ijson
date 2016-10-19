@@ -205,6 +205,7 @@ for name in ['python', 'yajl', 'yajl2', 'yajl2_cffi', 'yajl2_c']:
             {'backend': import_module('ijson.backends.%s' % name)},
         )
     except ImportError:
+        print("Skipping backend", name)
         pass
 
 

@@ -2,9 +2,19 @@ language: python
 python:
   - "2.7"
   - "3.4"
+# yajl2 is not available in Ubuntu precise, let's build it
 before_install:
+  - pip install cffi
   - sudo apt-get update -qq
-  - sudo apt-get install -y libyajl1
+  - sudo apt-get install -y wget unzip
+  - wget https://github.com/lloyd/yajl/archive/2.1.0.zip
+  - unzip 2.1.0.zip
+  - cd yajl-2.1.0
+  - ./configure -p /usr && make all && sudo make install
 install:
+  - cd ${TRAVIS_BUILD_DIR}
   - pip install .
-script: python tests.py
+script:
+  - cd ..
+  - cp ${TRAVIS_BUILD_DIR}/tests.py .
+  - python tests.py

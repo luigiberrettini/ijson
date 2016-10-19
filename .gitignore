@@ -1,3 +1,5 @@
 *.pyc
 .tox
 ijson.egg-info
+*.so
+build

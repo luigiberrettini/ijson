@@ -21,33 +21,28 @@
 #define STRING_FROM_UTF8(val, len) PyString_FromStringAndSize((const char *)val, len)
 #endif
 
-#define RETURN_X_ON_Y(var, statement, X, Y) \
-	do { \
-		var = statement; \
-		if( var == Y ) { \
-			/*printf("Failing in %s:%d\n", __FILE__, __LINE__);*/ \
-			return X; \
-		} \
-	} while(0);
-#define RETURN_0_ON_NULL(var, statement)       RETURN_X_ON_Y(var, statement, 0,    NULL)
-#define RETURN_NULL_ON_NULL(var, statement)    RETURN_X_ON_Y(var, statement, NULL, NULL)
-#define RETURN_MINUS_1_ON_NULL(var, statement) RETURN_X_ON_Y(var, statement, -1,   NULL)
 
-#define X_IF_COND(statement, X, cond) \
+/*
+ * Error-handling macros to help reducing clutter in the code.
+ * N: NULL, M1: -1, Z: zero, NZ: not-zero, LZ: less-than-zero
+ * */
+#define RETURN_X_IF_COND(statement, X, cond) \
 	do { \
-		if( statement cond ) { \
-			/*printf("Failing in %s:%d\n", __FILE__, __LINE__);*/ \
+		if( (statement) cond ) { \
 			return X; \
 		} \
 	} while(0);
-#define RETURN_NULL_IF_MINUS_1(statement)    X_IF_COND(statement, NULL, == -1)
-#define RETURN_NULL_IF_NULL(statement)       X_IF_COND(statement, NULL, == NULL)
-#define RETURN_MINUS_1_IF_ZERO(statement)    X_IF_COND(statement, -1,   == 0)
-#define RETURN_MINUS_1_IF_NOTZERO(statement) X_IF_COND(statement, -1,   != 0)
-#define RETURN_MINUS_1_IF_MINUS_1(statement) X_IF_COND(statement, -1,   == -1)
-#define RETURN_MINUS_1_IF_NULL(statement)    X_IF_COND(statement, -1,   == NULL)
-#define RETURN_ZERO_IF_NOTZERO(statement)    X_IF_COND(statement, 0,    != 0)
-#define RETURN_ZERO_IF_MINUS_1(statement)    X_IF_COND(statement, 0,    == -1)
+#define M1_M1(stmt)   RETURN_X_IF_COND(stmt,   -1, == -1)
+#define M1_N(stmt)    RETURN_X_IF_COND(stmt,   -1, == NULL)
+#define M1_NZ(stmt)   RETURN_X_IF_COND(stmt,   -1, != 0)
+#define M1_Z(stmt)    RETURN_X_IF_COND(stmt,   -1, == 0)
+#define N_M1(stmt)    RETURN_X_IF_COND(stmt, NULL, == -1)
+#define N_N(stmt)     RETURN_X_IF_COND(stmt, NULL, == NULL)
+#define Z_M1(stmt)    RETURN_X_IF_COND(stmt,    0, == -1)
+#define Z_N(stmt)     RETURN_X_IF_COND(stmt,    0, == NULL)
+#define Z_NZ(stmt)    RETURN_X_IF_COND(stmt,    0, != 0)
+#define X_LZ(stmt, X) RETURN_X_IF_COND(stmt,    X, < 0)
+#define X_N(stmt, X)  RETURN_X_IF_COND(stmt,    X, == NULL)
 
 /*
  * A structure (and variable) holding utf-8 strings with the event names
@@ -74,12 +69,12 @@ static enames_t enames;
 static inline
 int add_event_and_value(void *ctx, PyObject *evt_name, PyObject *val) {
 	PyObject *tuple;
-	RETURN_0_ON_NULL(tuple, PyTuple_New(2));
+	Z_N(tuple = PyTuple_New(2));
 	Py_INCREF(evt_name); // this is an element of our static enames var
-	RETURN_ZERO_IF_NOTZERO( PyTuple_SetItem(tuple, 0, evt_name) );
-	RETURN_ZERO_IF_NOTZERO( PyTuple_SetItem(tuple, 1, val) );
+	Z_NZ( PyTuple_SetItem(tuple, 0, evt_name) );
+	Z_NZ( PyTuple_SetItem(tuple, 1, val) );
 	PyObject *events = (PyObject *)((void **)ctx)[0];
-	RETURN_ZERO_IF_MINUS_1( PyList_Append(events, tuple) );
+	Z_M1( PyList_Append(events, tuple) );
 	Py_DECREF(tuple);
 	return 1;
 }
@@ -97,13 +92,13 @@ static int boolean(void * ctx, int val) {
 
 static int integer(void * ctx, long long integerVal) {
 	PyObject *val;
-	RETURN_0_ON_NULL(val, PyLong_FromLongLong(integerVal));
+	Z_N(val = PyLong_FromLongLong(integerVal));
 	return add_event_and_value(ctx, enames.integer_ename, val);
 }
 
 static int double_cb(void * ctx, double doubleVal) {
 	PyObject *val;
-	RETURN_0_ON_NULL(val, PyFloat_FromDouble(doubleVal));
+	Z_N(val = PyFloat_FromDouble(doubleVal));
 	return add_event_and_value(ctx, enames.double_ename, val);
 }
 
@@ -129,10 +124,10 @@ static int number(void * ctx, const char *numberVal, size_t numberLen) {
 		nval[numberLen] = 0;
 		char *endptr;
 #if PY_MAJOR_VERSION >= 3
-		RETURN_0_ON_NULL(val, PyLong_FromString(nval, &endptr, 10));
+		Z_N(val = PyLong_FromString(nval, &endptr, 10));
 #else
 		// returns either PyLong or PyInt
-		RETURN_0_ON_NULL(val, PyInt_FromString(nval, &endptr, 10));
+		Z_N(val = PyInt_FromString(nval, &endptr, 10));
 #endif
 		free(nval);
 		if( endptr == nval ) {
@@ -153,7 +148,7 @@ static int number(void * ctx, const char *numberVal, size_t numberLen) {
 
 		PyObject *args = Py_BuildValue("(d)", dval);
 		PyObject *decimal = (PyObject *)((void **)(ctx))[1];
-		RETURN_0_ON_NULL(val, PyObject_Call(decimal, args, NULL));
+		Z_N(val = PyObject_Call(decimal, args, NULL));
 		Py_DECREF(args);
 	}
 
@@ -162,7 +157,7 @@ static int number(void * ctx, const char *numberVal, size_t numberLen) {
 
 static int string_cb(void * ctx, const unsigned char *stringVal, size_t stringLen) {
 	PyObject *val;
-	RETURN_0_ON_NULL(val, PyUnicode_FromStringAndSize((char *)stringVal, stringLen))
+	Z_N(val = PyUnicode_FromStringAndSize((char *)stringVal, stringLen))
 	return add_event_and_value(ctx, enames.string_ename, val);
 }
 
@@ -173,7 +168,7 @@ static int start_map(void *ctx) {
 
 static int map_key(void *ctx, const unsigned char *key, size_t stringLen) {
 	PyObject *val;
-	RETURN_0_ON_NULL(val, STRING_FROM_UTF8(key, stringLen))
+	Z_N(val = STRING_FROM_UTF8(key, stringLen))
 	return add_event_and_value(ctx, enames.map_key_ename, val);
 }
 
@@ -254,7 +249,7 @@ static int basicparse_init(BasicParseGen *self, PyObject *args, PyObject *kwargs
 	 */
 	PyObject *events;
 	yajl_handle handle;
-	RETURN_MINUS_1_ON_NULL(events, PyList_New(0));
+	M1_N(events = PyList_New(0));
 
 	void **ctx = (void **)malloc(2 * sizeof(void *));
 	if( ctx == NULL ) {
@@ -265,7 +260,7 @@ static int basicparse_init(BasicParseGen *self, PyObject *args, PyObject *kwargs
 	ctx[1] = (void *)decimal;
 	self->ctx = ctx;
 
-	RETURN_MINUS_1_ON_NULL(handle, yajl_alloc(&callbacks, NULL, ctx));
+	M1_N(handle = yajl_alloc(&callbacks, NULL, ctx));
 	if( PyObject_IsTrue(allow_comments) ) {
 		yajl_config(handle, yajl_allow_comments, 1);
 	}
@@ -323,7 +318,7 @@ static int basicparsegen_fill_events(BasicParseGen *gen) {
 	PyObject *args = Py_BuildValue("(n)", gen->buf_size);
 	PyObject *pbuffer = PyObject_Call(gen->read, args, NULL);
 	Py_DECREF(args);
-	RETURN_MINUS_1_IF_NULL(pbuffer);
+	M1_N(pbuffer);
 
 	int conv = PyBytes_AsStringAndSize(pbuffer, &buf, &buflen);
 	if( conv < 0 ) {
@@ -352,7 +347,7 @@ static int basicparsegen_fill_events(BasicParseGen *gen) {
 static PyObject* basicparsegen_iternext(PyObject *self) {
 
 	/* Preempt our execution, which might be very long */
-	RETURN_NULL_IF_MINUS_1(PyErr_CheckSignals());
+	N_M1(PyErr_CheckSignals());
 
 	BasicParseGen *gen = (BasicParseGen *)self;
 
@@ -360,7 +355,7 @@ static PyObject* basicparsegen_iternext(PyObject *self) {
 	PyObject *events = (PyObject *)((void **)gen->ctx)[0];
 	Py_ssize_t nevents = PyList_Size(events);
 	while( !gen->finished && nevents == 0 ) {
-		RETURN_NULL_IF_MINUS_1(basicparsegen_fill_events(gen));
+		N_M1(basicparsegen_fill_events(gen));
 		nevents = PyList_Size(events);
 		if( nevents != 0 ) {
 			break;
@@ -375,7 +370,7 @@ static PyObject* basicparsegen_iternext(PyObject *self) {
 		/* empty the list if fully iterated over */
 		if( gen->pos == nevents ) {
 			gen->pos = 0;
-			RETURN_NULL_IF_MINUS_1(PySequence_DelSlice(events, 0, nevents));
+			N_M1(PySequence_DelSlice(events, 0, nevents));
 		}
 		return val;
 	}
@@ -452,13 +447,13 @@ static int parsegen_init(ParseGen *self, PyObject *args, PyObject *kwargs) {
 	if( BasicParseGen_Type.tp_init((PyObject *)self, args, kwargs) < 0 ) {
 		return -1;
 	}
-	RETURN_MINUS_1_ON_NULL(self->path, PyList_New(0));
+	M1_N(self->path = PyList_New(0));
 
 	PyObject *empty;
-	RETURN_MINUS_1_ON_NULL(empty, STRING_FROM_UTF8("", 0));
+	M1_N(empty = STRING_FROM_UTF8("", 0));
 	int res = PyList_Append(self->path, empty);
 	Py_DECREF(empty);
-	RETURN_MINUS_1_IF_MINUS_1( res );
+	M1_M1( res );
 
 	return 0;
 }
@@ -477,7 +472,7 @@ static PyObject* parsegen_iter(PyObject *self) {
 	do { \
 		tgt = PyUnicode_Concat(first, second); \
 		Py_DECREF(first); \
-		RETURN_NULL_IF_NULL(tgt); \
+		N_N(tgt); \
 	} while(0);
 
 static PyObject *dot, *item, *dotitem;
@@ -485,7 +480,7 @@ static PyObject* parsegen_iternext(PyObject *self) {
 
 	// unpack
 	PyObject *res;
-	RETURN_NULL_ON_NULL(res, BasicParseGen_Type.tp_iternext(self));
+	N_N(res = BasicParseGen_Type.tp_iternext(self));
 	PyObject *event = PyTuple_GetItem(res, 0);
 	PyObject *value = PyTuple_GetItem(res, 1);
 	Py_INCREF(event);
@@ -498,9 +493,9 @@ static PyObject* parsegen_iternext(PyObject *self) {
 	PyObject *prefix;
 	if( event == enames.end_array_ename || event == enames.end_map_ename ) {
 		// pop
-		RETURN_NULL_IF_MINUS_1(PyList_SetSlice(gen->path, npaths-1, npaths, NULL));
+		N_M1(PyList_SetSlice(gen->path, npaths-1, npaths, NULL));
 		npaths--;
-		RETURN_NULL_ON_NULL(prefix, PySequence_GetItem(gen->path, npaths-1));
+		N_N(prefix = PySequence_GetItem(gen->path, npaths-1));
 	}
 	else if( event == enames.map_key_ename ) {
 
@@ -508,7 +503,7 @@ static PyObject* parsegen_iternext(PyObject *self) {
 		// to_append = '.' + value if len(path_stack) > 1 else value
 		// new_path = path_stack[-2] + to_append
 		PyObject *last_path;
-		RETURN_NULL_ON_NULL(last_path, PySequence_GetItem(gen->path, npaths-2));
+		N_N(last_path = PySequence_GetItem(gen->path, npaths-2));
 		if( npaths > 1 ) {
 			PyObject *last_path_dot;
 			CONCAT(last_path_dot, last_path, dot);
@@ -518,10 +513,10 @@ static PyObject* parsegen_iternext(PyObject *self) {
 		CONCAT(new_path, last_path, value);
 		PyList_SetItem(gen->path, npaths-1, new_path);
 
-		RETURN_NULL_ON_NULL(prefix, PySequence_GetItem(gen->path, npaths-2));
+		N_N(prefix = PySequence_GetItem(gen->path, npaths-2));
 	}
 	else {
-		RETURN_NULL_ON_NULL(prefix, PySequence_GetItem(gen->path, npaths-1));
+		N_N(prefix = PySequence_GetItem(gen->path, npaths-1));
 	}
 
 	// The tuple we'll return
@@ -535,7 +530,7 @@ static PyObject* parsegen_iternext(PyObject *self) {
 		// to_append = '.item' if path_stack[-1] else 'item'
 		// path_stack.append(path_stack[-1] + to_append)
 		PyObject *last_path;
-		RETURN_NULL_ON_NULL(last_path, PySequence_GetItem(gen->path, npaths-1));
+		N_N(last_path = PySequence_GetItem(gen->path, npaths-1));
 
 		PyObject *new_path;
 		if( PyUnicode_GET_SIZE(last_path) > 0 ) {
@@ -547,10 +542,10 @@ static PyObject* parsegen_iternext(PyObject *self) {
 
 		int ret = PyList_Append(gen->path, new_path);
 		Py_DECREF(new_path);
-		RETURN_NULL_IF_MINUS_1(ret);
+		N_M1(ret);
 	}
 	else if( event == enames.start_map_ename ) {
-		RETURN_NULL_IF_MINUS_1(PyList_Append(gen->path, Py_None));
+		N_M1(PyList_Append(gen->path, Py_None));
 	}
 
 	return res;
@@ -621,7 +616,7 @@ static inline
 builder_t *builder_create(void) {
 
 	PyObject *value_stack;
-	RETURN_NULL_ON_NULL(value_stack, PyList_New(0));
+	N_N(value_stack = PyList_New(0));
 
 	builder_t *builder = (builder_t *)calloc(sizeof(builder_t), 1);
 	if( !builder ) {
@@ -660,7 +655,7 @@ int builder_reset(builder_t *builder) {
 	builder->value = NULL;
 
 	Py_ssize_t nvals = PyList_Size(builder->value_stack);
-	RETURN_MINUS_1_IF_MINUS_1( PyList_SetSlice(builder->value_stack, 0, nvals, NULL) );
+	M1_M1( PyList_SetSlice(builder->value_stack, 0, nvals, NULL) );
 
 	return 0;
 }
@@ -675,12 +670,12 @@ int builder_add(builder_t *builder, PyObject *value) {
 	}
 	else {
 		PyObject *last;
-		RETURN_MINUS_1_ON_NULL(last, PyList_GetItem(builder->value_stack, nvals-1));
+		M1_N(last = PyList_GetItem(builder->value_stack, nvals-1));
 		if( PyList_Check(last) ) {
-			RETURN_MINUS_1_IF_MINUS_1( PyList_Append(last, value) );
+			M1_M1( PyList_Append(last, value) );
 		}
 		else if( PyDict_Check(last) ) { // it's a dict
-			RETURN_MINUS_1_IF_MINUS_1( PyDict_SetItem(last, builder->key, value) );
+			M1_M1( PyDict_SetItem(last, builder->key, value) );
 		}
 		else {
 			PyErr_SetString(PyExc_TypeError, "Incorrect type found in value_stack");
@@ -702,25 +697,25 @@ int builder_event(builder_t *builder, PyObject *ename, PyObject *value) {
 	}
 	else if( ename == enames.start_map_ename ) {
 		PyObject *dict;
-		RETURN_MINUS_1_ON_NULL(dict, PyDict_New());
-		RETURN_MINUS_1_IF_MINUS_1( builder_add(builder, dict) );
-		RETURN_MINUS_1_IF_MINUS_1( PyList_Append(builder->value_stack, dict) );
+		M1_N(dict = PyDict_New());
+		M1_M1( builder_add(builder, dict) );
+		M1_M1( PyList_Append(builder->value_stack, dict) );
 		Py_DECREF(dict);
 	}
 	else if( ename == enames.start_array_ename ) {
 		PyObject *list;
-		RETURN_MINUS_1_ON_NULL(list, PyList_New(0));
-		RETURN_MINUS_1_IF_MINUS_1( builder_add(builder, list) );
-		RETURN_MINUS_1_IF_MINUS_1( PyList_Append(builder->value_stack, list) );
+		M1_N(list = PyList_New(0));
+		M1_M1( builder_add(builder, list) );
+		M1_M1( PyList_Append(builder->value_stack, list) );
 		Py_DECREF(list);
 	}
 	else if( ename == enames.end_array_ename || ename == enames.end_map_ename) {
 		// pop
 		Py_ssize_t nvals = PyList_Size(builder->value_stack);
-		RETURN_MINUS_1_IF_MINUS_1( PyList_SetSlice(builder->value_stack, nvals-1, nvals, NULL) );
+		M1_M1( PyList_SetSlice(builder->value_stack, nvals-1, nvals, NULL) );
 	}
 	else {
-		RETURN_MINUS_1_IF_MINUS_1( builder_add(builder, value) );
+		M1_M1( builder_add(builder, value) );
 	}
 
 	return 0;
@@ -748,7 +743,7 @@ static int itemsgen_init(ItemsGen *self, PyObject *args, PyObject *kwargs) {
 
 	PyObject *read, *decimal, *jsonerror, *jsonincompleteerror;
 	int ret = PyArg_ParseTuple(args, "OOOOO", &(self->prefix), &read, &decimal, &jsonerror, &jsonincompleteerror);
-	RETURN_MINUS_1_IF_ZERO(ret);
+	M1_Z(ret);
 
 	// call super.__init__ with everything except self->prefix
 	Py_INCREF(self->prefix);
@@ -757,16 +752,16 @@ static int itemsgen_init(ItemsGen *self, PyObject *args, PyObject *kwargs) {
 	Py_INCREF(jsonerror);
 	Py_INCREF(jsonincompleteerror);
 	PyObject *subargs;
-	RETURN_MINUS_1_ON_NULL(subargs, PyTuple_New(4));
-	RETURN_MINUS_1_IF_NOTZERO( PyTuple_SetItem(subargs, 0, read) );
-	RETURN_MINUS_1_IF_NOTZERO( PyTuple_SetItem(subargs, 1, decimal) );
-	RETURN_MINUS_1_IF_NOTZERO( PyTuple_SetItem(subargs, 2, jsonerror) );
-	RETURN_MINUS_1_IF_NOTZERO( PyTuple_SetItem(subargs, 3, jsonincompleteerror) );
+	M1_N(subargs = PyTuple_New(4));
+	M1_NZ( PyTuple_SetItem(subargs, 0, read) );
+	M1_NZ( PyTuple_SetItem(subargs, 1, decimal) );
+	M1_NZ( PyTuple_SetItem(subargs, 2, jsonerror) );
+	M1_NZ( PyTuple_SetItem(subargs, 3, jsonincompleteerror) );
 	ret = ParseGen_Type.tp_init((PyObject *)self, subargs, kwargs);
 	Py_DECREF(subargs);
-	RETURN_MINUS_1_IF_MINUS_1(ret);
+	M1_M1(ret);
 
-	RETURN_MINUS_1_ON_NULL(self->builder, builder_create());
+	M1_N(self->builder = builder_create());
 	Py_INCREF(Py_None);
 	return 0;
 }
@@ -792,7 +787,7 @@ static PyObject* itemsgen_iternext(PyObject *self) {
 
 		/* for path,event,value in parse(): */
 		PyObject *res;
-		RETURN_NULL_ON_NULL(res, ParseGen_Type.tp_iternext(self));
+		N_N(res = ParseGen_Type.tp_iternext(self));
 		PyObject *path  = PyTuple_GetItem(res, 0);
 		PyObject *event = PyTuple_GetItem(res, 1);
 		PyObject *value = PyTuple_GetItem(res, 2);
@@ -804,22 +799,22 @@ static PyObject* itemsgen_iternext(PyObject *self) {
 		PyObject *retval = NULL;
 		if( builder_isactive(gen->builder) ) {
 			int cmp = PyObject_RichCompareBool(path, gen->prefix, Py_EQ);
-			RETURN_NULL_IF_MINUS_1(cmp);
+			N_M1(cmp);
 			if( event != gen->end_event || cmp == 0 ) {
-				RETURN_NULL_IF_MINUS_1( builder_event(gen->builder, event, value) );
+				N_M1( builder_event(gen->builder, event, value) );
 			}
 			else {
 				retval = builder_value(gen->builder);
-				RETURN_NULL_IF_MINUS_1( builder_reset(gen->builder) );
+				N_M1( builder_reset(gen->builder) );
 			}
 		}
 		else {
 			int cmp = PyObject_RichCompareBool(path, gen->prefix, Py_EQ);
-			RETURN_NULL_IF_MINUS_1(cmp);
+			N_M1(cmp);
 			if( cmp ) {
 				if( event == enames.start_map_ename || event == enames.start_array_ename ) {
 					gen->end_event = (event == enames.start_array_ename) ? enames.end_array_ename : enames.end_map_ename;
-					RETURN_NULL_IF_MINUS_1( builder_event(gen->builder, event, value) );
+					N_M1( builder_event(gen->builder, event, value) );
 				}
 				else {
 					Py_INCREF(value);
@@ -912,12 +907,12 @@ MOD_INIT(_yajl2)
 	BasicParseGen_Type.tp_new = PyType_GenericNew;
 	ParseGen_Type.tp_new = PyType_GenericNew;
 	ItemsGen_Type.tp_new = PyType_GenericNew;
-	X_IF_COND(PyType_Ready(&BasicParseGen_Type), MOD_VAL(NULL), <0);
-	X_IF_COND(PyType_Ready(&ParseGen_Type), MOD_VAL(NULL), <0);
-	X_IF_COND(PyType_Ready(&ItemsGen_Type), MOD_VAL(NULL), <0);
+	X_LZ(PyType_Ready(&BasicParseGen_Type), MOD_VAL(NULL));
+	X_LZ(PyType_Ready(&ParseGen_Type), MOD_VAL(NULL));
+	X_LZ(PyType_Ready(&ItemsGen_Type), MOD_VAL(NULL));
 
 	MOD_DEF(m, "_yajl2", "wrapper for yajl2 methods", yajl2_methods);
-	X_IF_COND(m, MOD_VAL(NULL), == NULL);
+	X_N(m, MOD_VAL(NULL));
 
 	Py_INCREF(&BasicParseGen_Type);
 	Py_INCREF(&ParseGen_Type);

@@ -192,6 +192,12 @@ class Parse(object):
         self.assertTrue(list(self.backend.items(BytesIO(JSON), '')))
         self.assertTrue(list(self.backend.parse(BytesIO(JSON))))
 
+    def test_items_twodictlevels(self):
+        f = BytesIO(b'{"meta":{"view":{"columns":[{"id": -1}, {"id": -2}]}}}')
+        ids = list(self.backend.items(f, 'meta.view.columns.item.id'))
+        self.assertEqual(2, len(ids))
+        self.assertListEqual([-2,-1], sorted(ids))
+
 # Generating real TestCase classes for each importable backend
 for name in ['python', 'yajl', 'yajl2', 'yajl2_cffi', 'yajl2_c']:
     try:
@@ -264,7 +270,6 @@ class Common(unittest.TestCase):
             {'key': 'value'},
             None,
         ])
-
 
 class Stream(unittest.TestCase):
     def test_bytes(self):

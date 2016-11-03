@@ -504,7 +504,7 @@ static PyObject* parsegen_iternext(PyObject *self) {
 		// new_path = path_stack[-2] + to_append
 		PyObject *last_path;
 		N_N(last_path = PySequence_GetItem(gen->path, npaths-2));
-		if( npaths > 1 ) {
+		if( npaths > 2 ) {
 			PyObject *last_path_dot;
 			CONCAT(last_path_dot, last_path, dot);
 			last_path = last_path_dot;

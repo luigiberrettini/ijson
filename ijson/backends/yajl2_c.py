@@ -12,15 +12,13 @@ Wrapper for _yajl2 C extension module
 import decimal
 
 from ijson import common
-from ._yajl2 import basic_parse as _basic_parse  # @UnresolvedImport
-from ._yajl2 import parse as _parse  # @UnresolvedImport
-from ._yajl2 import items as _items  # @UnresolvedImport
+from . import _yajl2 # @UnresolvedImport
 
 def basic_parse(file, **kwargs):
-    return _basic_parse(file.read, decimal.Decimal, common.JSONError, common.IncompleteJSONError, **kwargs)
+    return _yajl2.basic_parse(file.read, decimal.Decimal, common.JSONError, common.IncompleteJSONError, **kwargs)
 
 def parse(file, **kwargs):
-    return _parse(file.read, decimal.Decimal, common.JSONError, common.IncompleteJSONError, **kwargs)
+    return _yajl2.parse(file.read, decimal.Decimal, common.JSONError, common.IncompleteJSONError, **kwargs)
 
 def items(file, prefix):
-    return _items(prefix, file.read, decimal.Decimal, common.JSONError, common.IncompleteJSONError)
+    return _yajl2.items(prefix, file.read, decimal.Decimal, common.JSONError, common.IncompleteJSONError)

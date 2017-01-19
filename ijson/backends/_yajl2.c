@@ -229,7 +229,8 @@ static int basicparse_init(BasicParseGen *self, PyObject *args, PyObject *kwargs
 	self->finished = 0;
 
 	char *kwlist[] = {"read", "decimal", "jsonerror", "incompletejsonerror",
-	                  "buf_size", "allow_comments", "multiple_values"};
+	                  "buf_size", "allow_comments", "multiple_values",
+	                  NULL};
 	if( !PyArg_ParseTupleAndKeywords(args, kwargs, "OOOO|nOO", kwlist,
 	                                 &read,
 	                                 &decimal,

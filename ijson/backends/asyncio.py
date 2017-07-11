@@ -149,7 +149,7 @@ def parse_value(lexer, pos=0, symbol=None):
     elif symbol == '{':
         return ObjectParser(lexer)
     elif symbol[0] == '"':
-        return ('string', python.unescape(symbol[1:-1]))
+        return ('string', python.parse_string(symbol))
     else:
         try:
             return ('number', common.number(symbol))
@@ -301,7 +301,7 @@ class ObjectParser(ContainerParser, ParseValueMixin):
         if symbol[0] != '"':
             raise python.UnexpectedSymbol(symbol, pos)
         self._next_future = self.before_value
-        return ('map_key', python.unescape(symbol[1:-1]))
+        return ('map_key', python.parse_string(symbol))
 
     @asyncio.coroutine
     def before_value(self):

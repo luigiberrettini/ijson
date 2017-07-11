@@ -65,8 +65,8 @@ version. For Python 3.5 you can stay with the familiar API, thanks to
     import ijson.backends.asyncio as ijson
 
     async def go():
-        resp = await aiohttp.get('http://localhost:5984')
-        async for item in ijson.items(resp.content, ''):
+        resp = await aiohttp.get('http://.../')
+        async for item in ijson.items(resp.content, 'earth.europe.item'):
             ...
 
 Python 3.3 and 3.4 lacks that feature, so you'll have to go with the `while`
@@ -77,8 +77,8 @@ loop instead::
 
     @asyncio.coroutine
     def go():
-        resp = yield from aiohttp.get('http://localhost:5984')
-        items = ijson.items(resp.content, '')
+        resp = yield from aiohttp.get('http://.../')
+        items = ijson.items(resp.content, 'earth.europe.item')
         while True:
             try:
                 item = yield from items.next()
@@ -119,9 +119,8 @@ data. This will improve parsing performance with preserving async IO::
     from ijson.backends import yajl2
 
     async def go():
-        resp = await aiohttp.get('http://localhost:5984')
-        items = ijson.items(resp.content, '')
-        async for item for ijson.items(resp.content, '', yajl_backend=yajl2)
+        resp = await aiohttp.get('http://.../')
+        async for item in ijson.items(resp.content, 'earth.europe.item', yajl_backend=yajl2)
             ...
 
 Importing the top level library as ``import ijson`` uses the pure Python
